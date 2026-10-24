@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="da">
-head>
+<head>
     <meta charset="utf-8" />
     <title>Digital Elnet Tvilling - Danmark</title>
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
@@ -28,7 +28,7 @@ head>
 
 <div class="map-overlay">
     <h1>Elnet Digital Tvilling</h1>
-    <p>Visualiserer transmissionsnettet (OSM / Neo4j)</p>
+    <p>Visualiserer transmissionsnettet (OpenStreetMap)</p>
 </div>
 
 <div id="map"></div>
@@ -44,9 +44,8 @@ head>
 
     map.on('load', async () => {
         try {
-            // Hent GeoJSON data fra vores FastAPI backend 
-            // (Skift URL'en ud når backenden er deployed, f.eks. til Render/Railway/Fly.io)
-            const response = await fetch('http://localhost:8000/api/substations');
+            // Hent den genererede GeoJSON-fil direkte lokalt/fra GitHub Pages
+            const response = await fetch('./substations.geojson');
             const data = await response.json();
 
             // Tilføj datakilden til kortet
@@ -92,7 +91,7 @@ head>
             });
 
         } catch (error) {
-            console.error("Kunne ikke hente elnet-data fra API'et:", error);
+            console.error("Kunne ikke hente substations.geojson:", error);
         }
     });
 </script>
