@@ -3,11 +3,11 @@ import json
 import requests
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Bruger en bounding box for Danmark (Syd, Vest, Nord, Øst) i stedet for 'area'
 OVERPASS_QUERY = """
-[out:json][timeout:25];
-area[name="Danmark"]->.searchArea;
+[out:json][timeout:30];
 (
-  node["power"="substation"](area.searchArea);
+  node["power"="substation"](54.5, 8.0, 57.8, 15.2);
 );
 out body;
 """
@@ -48,7 +48,6 @@ def fetch_and_save_geojson():
         "features": features
     }
 
-    # Sørg for at mappen findes
     os.makedirs("frontend", exist_ok=True)
     file_path = "frontend/substations.geojson"
     
