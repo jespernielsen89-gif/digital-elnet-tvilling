@@ -5,11 +5,13 @@ import time
 
 OVERPASS_URL = "https://overpass.kumi.systems/api/interpreter"
 
+# Optimeret forespørgsel: Henter kun stationer og højspændingsledninger (>= 132 kV eller transmissionsniveau)
 OVERPASS_QUERY = """
-[out:json][timeout:90][maxsize:200000000];
+[out:json][timeout:60];
 (
   node["power"="substation"](54.5, 8.0, 57.8, 15.2);
-  way["power"="line"](54.5, 8.0, 57.8, 15.2);
+  way["power"="line"]["voltage"~"132000|150000|400000"](54.5, 8.0, 57.8, 15.2);
+  way["power"="line"][!"voltage"](54.5, 8.0, 57.8, 15.2);
 );
 out body;
 >;
@@ -17,16 +19,16 @@ out skel qt;
 """
 
 def fetch_and_save_geojson():
-    print("Henter substations og power lines fra OpenStreetMap (via Kumi mirror)...")
+    print("Henter optimerede højspændingsdata fra OpenStreetMap...")
     headers = {'User-Agent': 'DigitalElnetTvillingMVP/1.0'}
     
     response = None
     for attempt in range(3):
         try:
-            response = requests.post(OVERPASS_URL, data={'data': OVERPASS_QUERY}, headers=headers, timeout=120)
+            response = requests.post(OVERPASS_URL, data={'data': OVERPASS_QUERY}, headers=headers, timeout=60)
             if response.status_code == 200:
                 break
-            print(f"Forsøg {attempt + 1} fejslede med status {response.status_code}, prøver igen...")
+            print(f"Forsøg {attempt + 1} fejlede med status {response.status_code}, prøver igen...")
         except Exception as e:
             print(f"Netværksfejl ved forsøg {attempt + 1}: {e}")
         time.sleep(5)
@@ -102,7 +104,7 @@ def fetch_and_save_geojson():
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(geojson_collection, f, ensure_ascii=False, indent=2)
         
-    print(f"Succes! {len(features)} elementer gemt i {file_path}")
+    print(f"Succes! {len(features)} optimerede elementer gemt i {file_path}")
 
 def parse_voltage(voltage_str):
     if not voltage_str:
