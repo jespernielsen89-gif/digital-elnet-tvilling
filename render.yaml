@@ -1,1 +1,14 @@
-
+services:
+  - type: web
+    name: elnet-backend
+    env: python
+    region: frankfurt # Tættest på din Neo4j-instans i Tyskland
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USER
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
