@@ -1,1 +1,101 @@
+<!DOCTYPE html>
+<html lang="da">
+head>
+    <meta charset="utf-8" />
+    <title>Digital Elnet Tvilling - Danmark</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <!-- MapLibre GL CSS -->
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        .map-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        h1 { font-size: 16px; margin: 0 0 5px 0; color: #111; }
+        p { font-size: 12px; margin: 0; color: #666; }
+    </style>
+</head>
+<body>
 
+<div class="map-overlay">
+    <h1>Elnet Digital Tvilling</h1>
+    <p>Visualiserer transmissionsnettet (OSM / Neo4j)</p>
+</div>
+
+<div id="map"></div>
+
+<script>
+    // Initialiser MapLibre kort over Danmark
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: 'https://demotiles.maplibre.org/style.json', // Standard letvægts-kortstil
+        center: [10.2, 56.2], // Centreret over Danmark
+        zoom: 6.5
+    });
+
+    map.on('load', async () => {
+        try {
+            // Hent GeoJSON data fra vores FastAPI backend 
+            // (Skift URL'en ud når backenden er deployed, f.eks. til Render/Railway/Fly.io)
+            const response = await fetch('http://localhost:8000/api/substations');
+            const data = await response.json();
+
+            // Tilføj datakilden til kortet
+            map.addSource('substations', {
+                type: 'geojson',
+                data: data
+            });
+
+            // Tilføj et lag der tegner stationerne som cirkler
+            map.addLayer({
+                id: 'substations-layer',
+                type: 'circle',
+                source: 'substations',
+                paint: {
+                    'circle-radius': 6,
+                    'circle-color': '#ff5722',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
+
+            // Tilføj popup når man klikker på en station
+            map.on('click', 'substations-layer', (e) => {
+                const props = e.features[0].properties;
+                const coordinates = e.features[0].geometry.coordinates.slice();
+
+                new maplibregl.Popup()
+                    .setLngLat(coordinates)
+                    .setHTML(`
+                        <strong>${props.name || 'Ukendt Station'}</strong><br>
+                        Spænding: ${props.voltage || 'Ikke angivet'}<br>
+                        Confidence Tier: ${props.confidence_tier}
+                    `)
+                    .addTo(map);
+            });
+
+            // Ændre musemarkør ved hov over punkter
+            map.on('mouseenter', 'substations-layer', () => {
+                map.getCanvas().style.cursor = 'pointer';
+            });
+            map.on('mouseleave', 'substations-layer', () => {
+                map.getCanvas().style.cursor = '';
+            });
+
+        } catch (error) {
+            console.error("Kunne ikke hente elnet-data fra API'et:", error);
+        }
+    });
+</script>
+
+</body>
+</html>
