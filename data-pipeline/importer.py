@@ -5,17 +5,17 @@ from pyrosm import OSM, get_data
 def fetch_and_save_geojson():
     print("Henter Danmarks OpenStreetMap-data fra Geofabrik (lokalt uden API-timeouts)...")
     
-    # Henter automatisk den seneste PBF-fil for Danmark (og cachen håndteres af pyrosm)
+    # Henter automatisk den seneste PBF-fil for Danmark
     fp = get_data("Denmark", directory="data")
+    
+    # Initialiser OSM med filen
     osm = OSM(fp)
 
     print("Udtrækker transformerstationer og højspændingsledninger lokalt...")
     
-    # 1. Hent transformerstationer (punkter/polygoner) via get_custom_data
-    substations_gdf = osm.get_custom_data(custom_filter={"power": ["substation"]})
-    
-    # 2. Hent højspændingsledninger (linjer) via get_custom_data
-    lines_gdf = osm.get_custom_data(custom_filter={"power": ["line"]})
+    # Korrekt syntaks i pyrosm for brugerdefinerede filtre
+    substations_gdf = osm.get_data(custom_filter={'power': ['substation']})
+    lines_gdf = osm.get_data(custom_filter={'power': ['line']})
 
     features = []
 
