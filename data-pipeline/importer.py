@@ -1,11 +1,10 @@
 import os
 import json
 import requests
+import time
 
 OVERPASS_URL = "https://overpass.kumi.systems/api/interpreter"
-#OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
-# Vi deler det op i to mindre forespørgsler eller udvider timeout og hukommelse
 OVERPASS_QUERY = """
 [out:json][timeout:90][maxsize:200000000];
 (
@@ -18,11 +17,23 @@ out skel qt;
 """
 
 def fetch_and_save_geojson():
-    print("Henter substations og power lines fra OpenStreetMap (med udvidet timeout)...")
+    print("Henter substations og power lines fra OpenStreetMap (via Kumi mirror)...")
     headers = {'User-Agent': 'DigitalElnetTvillingMVP/1.0'}
     
-    response = requests.post(OVERPASS_URL, data={'data': OVERPASS_QUERY}, headers=headers, timeout=100)
-    response.raise_for_status()
+    response = None
+    for attempt in range(3):
+        try:
+            response = requests.post(OVERPASS_URL, data={'data': OVERPASS_QUERY}, headers=headers, timeout=120)
+            if response.status_code == 200:
+                break
+            print(f"Forsøg {attempt + 1} fejslede med status {response.status_code}, prøver igen...")
+        except Exception as e:
+            print(f"Netværksfejl ved forsøg {attempt + 1}: {e}")
+        time.sleep(5)
+        
+    if not response or response.status_code != 200:
+        raise Exception("Kunne ikke oprette forbindelse til Overpass API efter 3 forsøg.")
+
     data = response.json()
 
     nodes_coords = {}
