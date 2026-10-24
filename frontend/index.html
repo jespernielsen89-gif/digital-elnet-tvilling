@@ -4,94 +4,138 @@
     <meta charset="utf-8" />
     <title>Digital Elnet Tvilling - Danmark</title>
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
-    <!-- MapLibre GL CSS -->
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
         .map-overlay {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 15px;
-            border-radius: 6px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            top: 15px;
+            left: 15px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
             z-index: 10;
+            max-width: 280px;
         }
         h1 { font-size: 16px; margin: 0 0 5px 0; color: #111; }
-        p { font-size: 12px; margin: 0; color: #666; }
+        p { font-size: 12px; margin: 0 0 10px 0; color: #555; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 4px; font-size: 12px; }
+        .legend-color { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; display: inline-block; }
+        .legend-line { width: 18px; height: 3px; margin-right: 8px; display: inline-block; }
     </style>
 </head>
 <body>
 
 <div class="map-overlay">
-    <h1>Elnet Digital Tvilling</h1>
-    <p>Visualiserer transmissionsnettet (OpenStreetMap)</p>
+    <h1>Digital Elnet Tvilling</h1>
+    <p>Transmissions- og regionalnet i Danmark</p>
+    
+    <div class="legend-item"><span class="legend-color" style="background: #d32f2f;"></span> 400 kV (Transmissionsnet)</div>
+    <div class="legend-item"><span class="legend-color" style="background: #f57c00;"></span> 132 - 150 kV (Regionalnet)</div>
+    <div class="legend-item"><span class="legend-color" style="background: #0288d1;"></span> < 132 kV / Ukendt</div>
 </div>
 
 <div id="map"></div>
 
 <script>
-    // Initialiser MapLibre kort over Danmark
     const map = new maplibregl.Map({
         container: 'map',
-        style: 'https://demotiles.maplibre.org/style.json', // Standard letvægts-kortstil
-        center: [10.2, 56.2], // Centreret over Danmark
-        zoom: 6.5
+        style: 'https://demotiles.maplibre.org/style.json',
+        center: [10.2, 56.2],
+        zoom: 7
     });
 
     map.on('load', async () => {
         try {
-            // Hent den genererede GeoJSON-fil direkte lokalt/fra GitHub Pages
             const response = await fetch('./substations.geojson');
             const data = await response.json();
 
-            // Tilføj datakilden til kortet
-            map.addSource('substations', {
+            map.addSource('elnet-data', {
                 type: 'geojson',
                 data: data
             });
 
-            // Tilføj et lag der tegner stationerne som cirkler
+            // 1. Lag for Højspændingsledninger (LineStrings)
             map.addLayer({
-                id: 'substations-layer',
-                type: 'circle',
-                source: 'substations',
+                id: 'power-lines',
+                type: 'line',
+                source: 'elnet-data',
+                filter: ['==', '$type', 'LineString'],
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
                 paint: {
-                    'circle-radius': 6,
-                    'circle-color': '#ff5722',
-                    'circle-stroke-width': 2,
+                    'line-color': [
+                        'case',
+                        ['>=', ['get', 'voltage_int'], 300000], '#d32f2f',
+                        ['>=', ['get', 'voltage_int'], 100000], '#f57c00',
+                        '#0288d1'
+                    ],
+                    'line-width': [
+                        'case',
+                        ['>=', ['get', 'voltage_int'], 300000], 3,
+                        ['>=', ['get', 'voltage_int'], 100000], 2,
+                        1
+                    ],
+                    'line-opacity': 0.8
+                }
+            });
+
+            // 2. Lag for Transformerstationer (Points)
+            map.addLayer({
+                id: 'substations',
+                type: 'circle',
+                source: 'elnet-data',
+                filter: ['==', '$type', 'Point'],
+                paint: {
+                    'circle-radius': [
+                        'interpolate', ['linear'], ['zoom'],
+                        6, 4,
+                        10, 8
+                    ],
+                    'circle-color': [
+                        'case',
+                        ['>=', ['get', 'voltage_int'], 300000], '#d32f2f',
+                        ['>=', ['get', 'voltage_int'], 100000], '#f57c00',
+                        '#0288d1'
+                    ],
+                    'circle-stroke-width': 1.5,
                     'circle-stroke-color': '#ffffff'
                 }
             });
 
-            // Tilføj popup når man klikker på en station
-            map.on('click', 'substations-layer', (e) => {
-                const props = e.features[0].properties;
-                const coordinates = e.features[0].geometry.coordinates.slice();
+            // Popups for både linjer og stationer
+            map.on('click', (e) => {
+                const bbox = [[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]];
+                const features = map.queryRenderedFeatures(bbox, { layers: ['substations', 'power-lines'] });
 
-                new maplibregl.Popup()
-                    .setLngLat(coordinates)
-                    .setHTML(`
-                        <strong>${props.name || 'Ukendt Station'}</strong><br>
-                        Spænding: ${props.voltage || 'Ikke angivet'}<br>
-                        Confidence Tier: ${props.confidence_tier}
-                    `)
-                    .addTo(map);
+                if (features.length) {
+                    const feature = features[0];
+                    const props = feature.properties;
+                    
+                    new maplibregl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(`
+                            <strong>${props.name}</strong><br>
+                            Type: ${props.type === 'substation' ? 'Transformerstation' : 'Højspændingsledning'}<br>
+                            Spænding: ${props.voltage || 'Ikke angivet'}<br>
+                            Operatør: ${props.operator || 'Ukendt'}
+                        `)
+                        .addTo(map);
+                }
             });
 
-            // Ændre musemarkør ved hov over punkter
-            map.on('mouseenter', 'substations-layer', () => {
-                map.getCanvas().style.cursor = 'pointer';
-            });
-            map.on('mouseleave', 'substations-layer', () => {
-                map.getCanvas().style.cursor = '';
-            });
+            map.on('mouseenter', 'substations', () => map.getCanvas().style.cursor = 'pointer');
+            map.on('mouseleave', 'substations', () => map.getCanvas().style.cursor = '');
+            map.on('mouseenter', 'power-lines', () => map.getCanvas().style.cursor = 'pointer');
+            map.on('mouseleave', 'power-lines', () => map.getCanvas().style.cursor = '');
 
         } catch (error) {
-            console.error("Kunne ikke hente substations.geojson:", error);
+            console.error("Kunne ikke hente elnet data:", error);
         }
     });
 </script>
