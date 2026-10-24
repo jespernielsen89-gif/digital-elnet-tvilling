@@ -10,8 +10,8 @@ PASSWORD = os.environ.get("NEO4J_PASSWORD")
 if not URI or not PASSWORD:
     raise ValueError("Miljøvariablerne NEO4J_URI og NEO4J_PASSWORD skal være angivet!")
 
-# Overpass API endpoint til at hente transmissionsnet i Danmark (OSM)
-OVERPASS_URL = "http://overpass-api.de/api/interpreter"
+# Overpass API endpoint med HTTPS
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_QUERY = """
 [out:json][timeout:25];
 area[name="Danmark"]->.searchArea;
@@ -26,7 +26,9 @@ out skel qt;
 
 def fetch_osm_data():
     print("Henter transmissionsdata fra OpenStreetMap...")
-    response = requests.post(OVERPASS_URL, data={'data': OVERPASS_QUERY})
+    # Overpass kræver en User-Agent header, ellers afvises forespørgslen (406)
+    headers = {'User-Agent': 'DigitalElnetTvillingMVP/1.0'}
+    response = requests.post(OVERPASS_URL, data={'data': OVERPASS_QUERY}, headers=headers)
     response.raise_for_status()
     return response.json()
 
