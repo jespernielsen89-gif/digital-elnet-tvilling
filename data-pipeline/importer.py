@@ -2,7 +2,8 @@ import os
 import json
 import requests
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URL = "https://overpass.kumi.systems/api/interpreter"
+#OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 # Vi deler det op i to mindre forespørgsler eller udvider timeout og hukommelse
 OVERPASS_QUERY = """
