@@ -1,1 +1,4 @@
-
+fastapi==0.110.0
+uvicorn==0.28.0
+neo4j==5.18.0
+requests==2.31.0
