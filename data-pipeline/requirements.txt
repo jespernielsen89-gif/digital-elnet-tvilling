@@ -1,4 +1,4 @@
 requests
-geopandas
 pyrosm
+osmium
 shapely
