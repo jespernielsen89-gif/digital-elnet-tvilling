@@ -11,16 +11,16 @@ def fetch_and_save_geojson():
 
     print("Udtrækker transformerstationer og højspændingsledninger lokalt...")
     
-    # 1. Hent transformerstationer (punkter/polygoner)
-    substations_gdf = osm.get_data(custom_filter={"power": ["substation"]})
+    # 1. Hent transformerstationer (punkter/polygoner) via get_custom_data
+    substations_gdf = osm.get_custom_data(custom_filter={"power": ["substation"]})
     
-    # 2. Hent højspændingsledninger (linjer)
-    lines_gdf = osm.get_data(custom_filter={"power": ["line"]})
+    # 2. Hent højspændingsledninger (linjer) via get_custom_data
+    lines_gdf = osm.get_custom_data(custom_filter={"power": ["line"]})
 
     features = []
 
     # Behandl stationer
-    if not substations_gdf.empty:
+    if substations_gdf is not None and not substations_gdf.empty:
         for _, row in substations_gdf.iterrows():
             geom = row.geometry
             if geom is not None:
@@ -46,7 +46,7 @@ def fetch_and_save_geojson():
                     })
 
     # Behandl højspændingsledninger
-    if not lines_gdf.empty:
+    if lines_gdf is not None and not lines_gdf.empty:
         for _, row in lines_gdf.iterrows():
             geom = row.geometry
             if geom is not None and geom.geom_type in ['LineString', 'MultiLineString']:
