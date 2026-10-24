@@ -1,0 +1,4 @@
+requests
+geopandas
+pyrosm
+shapely
