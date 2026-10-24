@@ -3,13 +3,13 @@ import json
 from pyrosm import OSM, get_data
 
 def fetch_and_save_geojson():
-    print("Henter Danmarks OpenStreetMap-data fra Geofabrik (lynlås-hurtigt og uden timeouts)...")
+    print("Henter Danmarks OpenStreetMap-data fra Geofabrik (lokalt uden API-timeouts)...")
     
-    # Henter automatisk den seneste PBF-fil for Danmark (cachen håndteres af pyrosm)
+    # Henter automatisk den seneste PBF-fil for Danmark (og cachen håndteres af pyrosm)
     fp = get_data("Denmark", directory="data")
     osm = OSM(fp)
 
-    print("Udtrækker transformerstationer og højspændingsledninger...")
+    print("Udtrækker transformerstationer og højspændingsledninger lokalt...")
     
     # 1. Hent transformerstationer (punkter/polygoner)
     substations_gdf = osm.get_data(custom_filter={"power": ["substation"]})
@@ -24,7 +24,6 @@ def fetch_and_save_geojson():
         for _, row in substations_gdf.iterrows():
             geom = row.geometry
             if geom is not None:
-                # Hvis det er en polygon, tager vi centroiden for et rent punkt
                 if geom.geom_type in ['Polygon', 'MultiPolygon']:
                     geom = geom.centroid
                 
@@ -51,7 +50,6 @@ def fetch_and_save_geojson():
         for _, row in lines_gdf.iterrows():
             geom = row.geometry
             if geom is not None and geom.geom_type in ['LineString', 'MultiLineString']:
-                # Vi udtrækker koordinater (forenkler til LineString hvis multi)
                 coords = []
                 if geom.geom_type == 'LineString':
                     coords = list(geom.coords)
@@ -63,7 +61,7 @@ def fetch_and_save_geojson():
                     voltage_str = str(row.get('voltage', ''))
                     voltage_val = parse_voltage(voltage_str)
                     
-                    # Filtrer evt. fra, hvis det er lavspænding (behold kun >= 132kV eller udefineret)
+                    # Behold højspænding og udefinerede linjer
                     if voltage_val == 0 or voltage_val >= 132000:
                         features.append({
                             "type": "Feature",
