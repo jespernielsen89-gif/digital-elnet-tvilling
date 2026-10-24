@@ -1,129 +1,85 @@
 import os
 import json
-import requests
-import time
-
-OVERPASS_URL = "https://overpass.kumi.systems/api/interpreter"
-
-# Vi opdeler Danmark i tre geografiske zoner for at undgå timeouts på store forespørgsler
-REGIONS = [
-    {"name": "Jylland", "box": "(54.5, 8.0, 57.8, 9.5)"},
-    {"name": "Fyn & Midt", "box": "(54.8, 9.5, 57.8, 11.0)"},
-    {"name": "Sjælland & Øer", "box": "(54.5, 11.0, 57.8, 15.2)"}
-]
-
-def query_overpass(query):
-    headers = {'User-Agent': 'DigitalElnetTvillingMVP/1.0'}
-    for attempt in range(3):
-        try:
-            response = requests.post(OVERPASS_URL, data={'data': query}, headers=headers, timeout=60)
-            if response.status_code == 200:
-                return response.json()
-            print(f"Forsøg {attempt + 1} gav status {response.status_code}, prøver igen...")
-        except Exception as e:
-            print(f"Netværksfejl ved forsøg {attempt + 1}: {e}")
-        time.sleep(3)
-    return None
+from pyrosm import OSM, get_data
 
 def fetch_and_save_geojson():
-    all_elements = []
+    print("Henter Danmarks OpenStreetMap-data fra Geofabrik (lynlås-hurtigt og uden timeouts)...")
     
-    # 1. Hent stationer zone for zone
-    print("Henter transformerstationer zone for zone...")
-    for reg in REGIONS:
-        print(f" -> Henter {reg['name']}...")
-        query = f"""
-        [out:json][timeout:30];
-        node["power"="substation"]{reg['box']};
-        out body;
-        """
-        data = query_overpass(query)
-        if data and 'elements' in data:
-            all_elements.extend(data['elements'])
-        time.sleep(2) # Skånsom pause mellem zoner
+    # Henter automatisk den seneste PBF-fil for Danmark (cachen håndteres af pyrosm)
+    fp = get_data("Denmark", directory="data")
+    osm = OSM(fp)
 
-    # 2. Hent højspændingsledninger (kun de vigtigste spændinger)
-    print("Henter højspændingsledninger for landet...")
-    line_query = """
-    [out:json][timeout:60];
-    (
-      way["power"="line"]["voltage"~"132000|150000|400000"](54.5, 8.0, 57.8, 15.2);
-      way["power"="line"][!"voltage"](54.5, 8.0, 57.8, 15.2);
-    );
-    out body;
-    >;
-    out skel qt;
-    """
-    line_data = query_overpass(line_query)
-    if line_data and 'elements' in line_data:
-        all_elements.extend(line_data['elements'])
-
-    if not all_elements:
-        raise Exception("Kunne ikke hente nogen data fra Overpass API.")
-
-    # Fjern duplikater baseret på element ID
-    seen_ids = set()
-    unique_elements = []
-    for el in all_elements:
-        if el['id'] not in seen_ids:
-            seen_ids.add(el['id'])
-            unique_elements.append(el)
-
-    # Utræk noder til koordinater for ledninger
-    nodes_coords = {}
-    for element in unique_elements:
-        if element.get('type') == 'node':
-            nodes_coords[element['id']] = (float(element['lon']), float(element['lat']))
+    print("Udtrækker transformerstationer og højspændingsledninger...")
+    
+    # 1. Hent transformerstationer (punkter/polygoner)
+    substations_gdf = osm.get_data(custom_filter={"power": ["substation"]})
+    
+    # 2. Hent højspændingsledninger (linjer)
+    lines_gdf = osm.get_data(custom_filter={"power": ["line"]})
 
     features = []
 
-    for element in unique_elements:
-        tags = element.get('tags', {})
-        
-        # Behandl stationer (Points)
-        if element.get('type') == 'node' and tags.get('power') == 'substation':
-            lat = element.get('lat')
-            lon = element.get('lon')
-            if lat and lon:
-                voltage_str = tags.get('voltage', '')
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [float(lon), float(lat)]
-                    },
-                    "properties": {
-                        "mRID": str(element['id']),
-                        "name": tags.get('name', 'Ukendt Station'),
-                        "voltage": tags.get('voltage', 'Ukendt'),
-                        "voltage_int": parse_voltage(voltage_str),
-                        "type": "substation",
-                        "operator": tags.get('operator', 'Ukendt operatør')
-                    }
-                })
+    # Behandl stationer
+    if not substations_gdf.empty:
+        for _, row in substations_gdf.iterrows():
+            geom = row.geometry
+            if geom is not None:
+                # Hvis det er en polygon, tager vi centroiden for et rent punkt
+                if geom.geom_type in ['Polygon', 'MultiPolygon']:
+                    geom = geom.centroid
+                
+                if geom.geom_type == 'Point':
+                    voltage_str = str(row.get('voltage', ''))
+                    features.append({
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [float(geom.x), float(geom.y)]
+                        },
+                        "properties": {
+                            "mRID": str(row.get('id', '')),
+                            "name": str(row.get('name', 'Ukendt Station')),
+                            "voltage": voltage_str if voltage_str != 'nan' else 'Ukendt',
+                            "voltage_int": parse_voltage(voltage_str),
+                            "type": "substation",
+                            "operator": str(row.get('operator', 'Ukendt operatør'))
+                        }
+                    })
 
-        # Behandl ledninger (LineStrings)
-        elif element.get('type') == 'way' and tags.get('power') == 'line':
-            way_nodes = element.get('nodes', [])
-            coordinates = [nodes_coords[node_id] for node_id in way_nodes if node_id in nodes_coords]
-            
-            if len(coordinates) >= 2:
-                voltage_str = tags.get('voltage', '')
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": coordinates
-                    },
-                    "properties": {
-                        "mRID": str(element['id']),
-                        "name": tags.get('name', 'Højspændingsledning'),
-                        "voltage": tags.get('voltage', 'Ukendt'),
-                        "voltage_int": parse_voltage(voltage_str),
-                        "type": "line",
-                        "operator": tags.get('operator', 'Ukendt operatør')
-                    }
-                })
+    # Behandl højspændingsledninger
+    if not lines_gdf.empty:
+        for _, row in lines_gdf.iterrows():
+            geom = row.geometry
+            if geom is not None and geom.geom_type in ['LineString', 'MultiLineString']:
+                # Vi udtrækker koordinater (forenkler til LineString hvis multi)
+                coords = []
+                if geom.geom_type == 'LineString':
+                    coords = list(geom.coords)
+                elif geom.geom_type == 'MultiLineString':
+                    for part in geom.geoms:
+                        coords.extend(list(part.coords))
+                
+                if len(coords) >= 2:
+                    voltage_str = str(row.get('voltage', ''))
+                    voltage_val = parse_voltage(voltage_str)
+                    
+                    # Filtrer evt. fra, hvis det er lavspænding (behold kun >= 132kV eller udefineret)
+                    if voltage_val == 0 or voltage_val >= 132000:
+                        features.append({
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": [[float(c[0]), float(c[1])] for c in coords]
+                            },
+                            "properties": {
+                                "mRID": str(row.get('id', '')),
+                                "name": str(row.get('name', 'Højspændingsledning')),
+                                "voltage": voltage_str if voltage_str != 'nan' else 'Ukendt',
+                                "voltage_int": voltage_val,
+                                "type": "line",
+                                "operator": str(row.get('operator', 'Ukendt operatør'))
+                            }
+                        })
 
     geojson_collection = {
         "type": "FeatureCollection",
@@ -136,10 +92,10 @@ def fetch_and_save_geojson():
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(geojson_collection, f, ensure_ascii=False, indent=2)
         
-    print(f"Succes! {len(features)} elementer fordelt på stationer og ledninger gemt i {file_path}")
+    print(f"Succes! {len(features)} elementer gemt i {file_path}")
 
 def parse_voltage(voltage_str):
-    if not voltage_str:
+    if not voltage_str or voltage_str == 'nan':
         return 0
     try:
         cleaned = voltage_str.replace('kV', '000').replace(' ', '')
