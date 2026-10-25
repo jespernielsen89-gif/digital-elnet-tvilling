@@ -27,9 +27,6 @@ jobs:
         NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
       run: python data-pipeline/importer.py
 
-      - name: Run Importer Script
-        run: python data-pipeline/importer.py
-
       - name: Commit and push generated GeoJSON
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
