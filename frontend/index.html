@@ -33,9 +33,9 @@
     <h1>Digital Elnet Tvilling</h1>
     <p>Transmissions- og regionalnet i Danmark</p>
     
-    <div class="legend-item"><span class="legend-color" style="background: #d32f2f;"></span> 400 kV (Transmissionsnet)</div>
-    <div class="legend-item"><span class="legend-color" style="background: #f57c00;"></span> 132 - 150 kV (Regionalnet)</div>
-    <div class="legend-item"><span class="legend-color" style="background: #0288d1;"></span> < 132 kV / Ukendt</div>
+    <div class="legend-item"><span class="legend-line" style="background: #d32f2f;"></span> 400 kV (Transmissionsnet)</div>
+    <div class="legend-item"><span class="legend-line" style="background: #f57c00;"></span> 132 - 150 kV (Regionalnet)</div>
+    <div class="legend-item"><span class="legend-line" style="background: #0288d1;"></span> < 132 kV / Ukendt</div>
 </div>
 
 <div id="map"></div>
@@ -116,14 +116,14 @@
                 if (features.length) {
                     const feature = features[0];
                     const props = feature.properties;
-                    
+
                     new maplibregl.Popup()
                         .setLngLat(e.lngLat)
                         .setHTML(`
                             <strong>${props.name}</strong><br>
                             Type: ${props.type === 'substation' ? 'Transformerstation' : 'Højspændingsledning'}<br>
                             Spænding: ${props.voltage || 'Ikke angivet'}<br>
-                            Operatør: ${props.operator || 'Ukendt'}
+                            Operatør: ${props.operator || 'ukendt'}
                         `)
                         .addTo(map);
                 }
