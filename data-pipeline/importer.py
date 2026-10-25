@@ -51,7 +51,7 @@ class PowerHandler(osmium.SimpleHandler):
             voltage_str = w.tags.get('voltage', '')
             voltage_val = parse_voltage(voltage_str)
             
-            # Inkluderer nu også det regionale 50/60 kV net (>= 50000)
+            # Inkluderer transmission og regionalnet (>= 50 kV)
             if voltage_val == 0 or voltage_val >= 50000:
                 coords = []
                 for nd in w.nodes:
@@ -99,7 +99,7 @@ def parse_voltage(voltage_str):
         return 0
 
 def build_topology(raw_lines, substations):
-    print(f"Bygger avanceret topologi for {len(raw_lines)} linjer og {len(substations)} stationer med STRtree...")
+    print(f"Bygger optimeret topologi for {len(raw_lines)} linjer og {len(substations)} stationer med STRtree korridorer...")
     if not substations or not raw_lines:
         print("Advarsel: Mangler enten stationer eller linjer til topologi-bygning!")
         return []
@@ -110,7 +110,7 @@ def build_topology(raw_lines, substations):
     tree = STRtree(sub_geoms)
     
     topology = []
-    max_dist_deg = 0.04 
+    max_dist_deg = 0.05  # Udvidet tolerance (~5 km) til korridormatching
 
     match_count = 0
     for line in raw_lines:
@@ -122,26 +122,32 @@ def build_topology(raw_lines, substations):
         start_pt = Point(coords[0][0], coords[0][1])
         end_pt = Point(coords[-1][0], coords[-1][1])
 
-        possible_start_idxs = tree.query(start_pt.buffer(max_dist_deg))
-        possible_end_idxs = tree.query(end_pt.buffer(max_dist_deg))
+        # Buffer hele ledningen for at fange stationer tæt på traséen
+        buffer_geom = line_geom.buffer(max_dist_deg)
+        nearby_sub_idxs = tree.query(buffer_geom)
+
+        if len(nearby_sub_idxs) < 2:
+            continue
 
         closest_start = None
         min_start_dist = float('inf')
-        for idx in possible_start_idxs:
-            geom = sub_geoms[idx]
-            dist = start_pt.distance(geom)
-            if dist < min_start_dist and dist <= max_dist_deg:
-                min_start_dist = dist
-                closest_start = sub_lookup[id(geom)]
-
         closest_end = None
         min_end_dist = float('inf')
-        for idx in possible_end_idxs:
+
+        for idx in nearby_sub_idxs:
             geom = sub_geoms[idx]
-            dist = end_pt.distance(geom)
-            if dist < min_end_dist and dist <= max_dist_deg:
-                min_end_dist = dist
-                closest_end = sub_lookup[id(geom)]
+            sub_mrid = sub_lookup[id(geom)]
+            
+            dist_to_start = start_pt.distance(geom)
+            dist_to_end = end_pt.distance(geom)
+
+            if dist_to_start < min_start_dist and dist_to_start <= max_dist_deg:
+                min_start_dist = dist_to_start
+                closest_start = sub_mrid
+
+            if dist_to_end < min_end_dist and dist_to_end <= max_dist_deg:
+                min_end_dist = dist_to_end
+                closest_end = sub_mrid
 
         if closest_start and closest_end and closest_start != closest_end:
             topology.append({
@@ -153,7 +159,7 @@ def build_topology(raw_lines, substations):
             })
             match_count += 1
 
-    print(f"Topologi-analyse færdig: Fandt {match_count} gyldige netværksforbindelser med STRtree.")
+    print(f"Topologi-analyse færdig: Fandt {match_count} gyldige netværksforbindelser med optimeret korridormatching.")
     return topology
 
 def sync_to_neo4j(features, topology):
