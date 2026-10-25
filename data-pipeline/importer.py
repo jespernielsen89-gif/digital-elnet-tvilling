@@ -3,15 +3,17 @@ import json
 import osmium
 from pyrosm import get_data
 from neo4j import GraphDatabase
+from shapely.geometry import Point, LineString
 
 class PowerHandler(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.features = []
-        self.substation_node_ids = set()
-        self.lines_topology = []
+        self.substations_list = []
+        self.raw_lines = []
 
     def node(self, n):
+        # Fang stationer som noder
         if 'power' in n.tags and n.tags['power'] == 'substation':
             if n.location.valid():
                 voltage_str = n.tags.get('voltage', '')
@@ -19,7 +21,12 @@ class PowerHandler(osmium.SimpleHandler):
                 confidence_tier = 1 if 'Energinet' in n.tags.get('operator', '') else 3
 
                 sub_mRID = f"substation-{n.id}"
-                self.substation_node_ids.add(n.id)
+                
+                self.substations_list.append({
+                    "mRID": sub_mRID,
+                    "lon": n.location.lon,
+                    "lat": n.location.lat
+                })
 
                 self.features.append({
                     "type": "Feature",
@@ -46,17 +53,9 @@ class PowerHandler(osmium.SimpleHandler):
             
             if voltage_val == 0 or voltage_val >= 132000:
                 coords = []
-                way_substations = []
-
                 for nd in w.nodes:
                     if nd.location.valid():
                         coords.append([nd.location.lon, nd.location.lat])
-                    
-                    # Tjek om denne node i linjen også er en transformerstation
-                    if nd.ref in self.substation_node_ids:
-                        sub_id = f"substation-{nd.ref}"
-                        if sub_id not in way_substations:
-                            way_substations.append(sub_id)
                 
                 if len(coords) >= 2:
                     confidence_tier = 1 if 'Energinet' in w.tags.get('operator', '') else 3
@@ -80,16 +79,14 @@ class PowerHandler(osmium.SimpleHandler):
                         }
                     })
 
-                    # Hvis linjen berører 2 eller flere stationer, danner den relationer imellem dem
-                    if len(way_substations) >= 2:
-                        for i in range(len(way_substations) - 1):
-                            self.lines_topology.append({
-                                "line_mRID": f"line-{w.id}",
-                                "name": w.tags.get('name', 'Højspændingsledning'),
-                                "voltage_int": voltage_val,
-                                "source_sub": way_substations[i],
-                                "target_sub": way_substations[i+1]
-                            })
+                    # Gem til topologi-analyse
+                    self.raw_lines.append({
+                        "mRID": f"line-{w.id}",
+                        "name": w.tags.get('name', 'Højspændingsledning'),
+                        "voltage_int": voltage_val,
+                        "start_coord": coords[0],
+                        "end_coord": coords[-1]
+                    })
 
 def parse_voltage(voltage_str):
     if not voltage_str:
@@ -101,7 +98,49 @@ def parse_voltage(voltage_str):
     except Exception:
         return 0
 
-def sync_to_neo4j(features, lines_topology):
+def build_topology(raw_lines, substations):
+    print("Matcher linjernes endepunkter med de Nærmeste Stationer ved hjælp af Shapely...")
+    # Opret et hurtigt lookup af stationer
+    sub_points = [(s["mRID"], Point(s["lon"], s["lat"])) for s in substations]
+    
+    topology = []
+    max_dist_deg = 0.015 # Ca. 1.5 km tolerance ved endepunkter
+
+    for line in raw_lines:
+        start_pt = Point(line["start_coord"][0], line["start_coord"][1])
+        end_pt = Point(line["end_coord"][0], line["end_coord"][1])
+
+        closest_start = None
+        min_start_dist = float('inf')
+        closest_end = None
+        min_end_dist = float('inf')
+
+        for sub_id, sub_pt in sub_points:
+            d_start = start_pt.distance(sub_pt)
+            if d_start < min_start_dist:
+                min_start_dist = d_start
+                closest_start = sub_id
+
+            d_end = end_pt.distance(sub_pt)
+            if d_end < min_end_dist:
+                min_end_dist = d_end
+                closest_end = sub_id
+
+        # Hvis både start og slut er tæt på en station (og det ikke er den samme), opret relation
+        if closest_start and closest_end and closest_start != closest_end:
+            if min_start_dist <= max_dist_deg and min_end_dist <= max_dist_deg:
+                topology.append({
+                    "line_mRID": line["mRID"],
+                    "name": line["name"],
+                    "voltage_int": line["voltage_int"],
+                    "source_sub": closest_start,
+                    "target_sub": closest_end
+                })
+
+    print(f"Fandt {len(topology)} topologiske forbindelser.")
+    return topology
+
+def sync_to_neo4j(features, topology):
     uri = os.getenv("NEO4J_URI")
     user = os.getenv("NEO4J_USER")
     password = os.getenv("NEO4J_PASSWORD")
@@ -145,8 +184,8 @@ def sync_to_neo4j(features, lines_topology):
                 substation_count += 1
         print(f"Synkroniserede {substation_count} stationer til Neo4j.")
 
-        # 2. Opret CONNECTS_TO relationer baseret på delte node-id'er
-        print(f"Opretter {len(lines_topology)} topologiske CONNECTS_TO relationer...")
+        # 2. Opret CONNECTS_TO relationer
+        print(f"Skriver {len(topology)} CONNECTS_TO relationer til Neo4j...")
         session.run(
             """
             UNWIND $topology AS t
@@ -156,7 +195,7 @@ def sync_to_neo4j(features, lines_topology):
             SET r.name = t.name,
                 r.voltage_int = t.voltage_int
             """
-        , topology=lines_topology)
+        , topology=topology)
         print("Topologiske relationer oprettet succesfuldt!")
 
     driver.close()
@@ -182,8 +221,9 @@ def fetch_and_save_geojson():
         
     print(f"Succes! {len(handler.features)} elementer gemt i {file_path}")
 
-    # Synkroniser noder og topologi til Neo4j AuraDB
-    sync_to_neo4j(handler.features, handler.lines_topology)
+    # Beregn topologi via Shapely og synkroniser til Neo4j AuraDB
+    topology = build_topology(handler.raw_lines, handler.substations_list)
+    sync_to_neo4j(handler.features, topology)
 
 if __name__ == "__main__":
     fetch_and_save_geojson()
