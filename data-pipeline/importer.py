@@ -8,7 +8,8 @@ class PowerHandler(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.features = []
-        self.lines_data = []
+        self.substation_node_ids = set()
+        self.lines_topology = []
 
     def node(self, n):
         if 'power' in n.tags and n.tags['power'] == 'substation':
@@ -17,6 +18,9 @@ class PowerHandler(osmium.SimpleHandler):
                 voltage_val = parse_voltage(voltage_str)
                 confidence_tier = 1 if 'Energinet' in n.tags.get('operator', '') else 3
 
+                sub_mRID = f"substation-{n.id}"
+                self.substation_node_ids.add(n.id)
+
                 self.features.append({
                     "type": "Feature",
                     "geometry": {
@@ -24,7 +28,7 @@ class PowerHandler(osmium.SimpleHandler):
                         "coordinates": [n.location.lon, n.location.lat]
                     },
                     "properties": {
-                        "mRID": f"substation-{n.id}",
+                        "mRID": sub_mRID,
                         "name": n.tags.get('name', 'Ukendt Station'),
                         "voltage": voltage_str if voltage_str else 'Ukendt',
                         "voltage_int": voltage_val,
@@ -42,9 +46,17 @@ class PowerHandler(osmium.SimpleHandler):
             
             if voltage_val == 0 or voltage_val >= 132000:
                 coords = []
+                way_substations = []
+
                 for nd in w.nodes:
                     if nd.location.valid():
                         coords.append([nd.location.lon, nd.location.lat])
+                    
+                    # Tjek om denne node i linjen også er en transformerstation
+                    if nd.ref in self.substation_node_ids:
+                        sub_id = f"substation-{nd.ref}"
+                        if sub_id not in way_substations:
+                            way_substations.append(sub_id)
                 
                 if len(coords) >= 2:
                     confidence_tier = 1 if 'Energinet' in w.tags.get('operator', '') else 3
@@ -68,17 +80,16 @@ class PowerHandler(osmium.SimpleHandler):
                         }
                     })
 
-                    # Gem også metadata til topologi / CONNECTS_TO i Neo4j
-                    # Vi gemmer start- og slutkoordinater for at kunne koble til nærmeste station
-                    self.lines_data.append({
-                        "mRID": f"line-{w.id}",
-                        "name": w.tags.get('name', 'Højspændingsledning'),
-                        "voltage_int": voltage_val,
-                        "start_lat": coords[0][1],
-                        "start_lon": coords[0][0],
-                        "end_lat": coords[-1][1],
-                        "end_lon": coords[-1][0]
-                    })
+                    # Hvis linjen berører 2 eller flere stationer, danner den relationer imellem dem
+                    if len(way_substations) >= 2:
+                        for i in range(len(way_substations) - 1):
+                            self.lines_topology.append({
+                                "line_mRID": f"line-{w.id}",
+                                "name": w.tags.get('name', 'Højspændingsledning'),
+                                "voltage_int": voltage_val,
+                                "source_sub": way_substations[i],
+                                "target_sub": way_substations[i+1]
+                            })
 
 def parse_voltage(voltage_str):
     if not voltage_str:
@@ -90,7 +101,7 @@ def parse_voltage(voltage_str):
     except Exception:
         return 0
 
-def sync_to_neo4j(features, lines_data):
+def sync_to_neo4j(features, lines_topology):
     uri = os.getenv("NEO4J_URI")
     user = os.getenv("NEO4J_USER")
     password = os.getenv("NEO4J_PASSWORD")
@@ -134,21 +145,18 @@ def sync_to_neo4j(features, lines_data):
                 substation_count += 1
         print(f"Synkroniserede {substation_count} stationer til Neo4j.")
 
-        # 2. Opret CONNECTS_TO relationer baseret på linjernes endepunkter og geografisk nærhed til stationer
-        print("Opretter topologiske CONNECTS_TO relationer...")
-        # Vi matcher linjens start/slut med stationer inden for ca. 1.5 km (~0.015 grader) for at binde nettet sammen
+        # 2. Opret CONNECTS_TO relationer baseret på delte node-id'er
+        print(f"Opretter {len(lines_topology)} topologiske CONNECTS_TO relationer...")
         session.run(
             """
-            UNWIND $lines AS l
-            MATCH (s1:Substation)
-            WHERE abs(s1.lat - l.start_lat) < 0.015 AND abs(s1.lon - l.start_lon) < 0.015
-            MATCH (s2:Substation)
-            WHERE abs(s2.lat - l.end_lat) < 0.015 AND abs(s2.lon - l.end_lon) < 0.015 AND s1.mRID <> s2.mRID
-            MERGE (s1)-[r:CONNECTS_TO {line_mRID: l.mRID}]->(s2)
-            SET r.name = l.name,
-                r.voltage_int = l.voltage_int
+            UNWIND $topology AS t
+            MATCH (s1:Substation {mRID: t.source_sub})
+            MATCH (s2:Substation {mRID: t.target_sub})
+            MERGE (s1)-[r:CONNECTS_TO {line_mRID: t.line_mRID}]->(s2)
+            SET r.name = t.name,
+                r.voltage_int = t.voltage_int
             """
-        , lines=lines_data)
+        , topology=lines_topology)
         print("Topologiske relationer oprettet succesfuldt!")
 
     driver.close()
@@ -175,7 +183,7 @@ def fetch_and_save_geojson():
     print(f"Succes! {len(handler.features)} elementer gemt i {file_path}")
 
     # Synkroniser noder og topologi til Neo4j AuraDB
-    sync_to_neo4j(handler.features, handler.lines_data)
+    sync_to_neo4j(handler.features, handler.lines_topology)
 
 if __name__ == "__main__":
     fetch_and_save_geojson()
