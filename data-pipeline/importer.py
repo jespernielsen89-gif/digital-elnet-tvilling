@@ -4,6 +4,7 @@ import osmium
 from pyrosm import get_data
 from neo4j import GraphDatabase
 from shapely.geometry import Point, LineString
+from shapely.strtree import STRtree
 
 class PowerHandler(osmium.SimpleHandler):
     def __init__(self):
@@ -97,52 +98,67 @@ def parse_voltage(voltage_str):
         return 0
 
 def build_topology(raw_lines, substations):
-    print(f"Bygger robust topologi for {len(raw_lines)} linjer og {len(substations)} stationer...")
+    print(f"Bygger avanceret topologi for {len(raw_lines)} linjer og {len(substations)} stationer med STRtree...")
     if not substations or not raw_lines:
         print("Advarsel: Mangler enten stationer eller linjer til topologi-bygning!")
         return []
 
-    # Opret et hurtigt lookup af stationer med Shapely Points
-    sub_points = [(s["mRID"], Point(s["lon"], s["lat"])) for s in substations]
+    # Opret geometrier og kortlægning for stationer
+    sub_geoms = [Point(s["lon"], s["lat"]) for s in substations]
+    sub_lookup = {id(geom): s["mRID"] for geom, s in zip(sub_geoms, substations)}
+    
+    # Byg Shapely Spatial Index (STRtree) for lynhurtig opslag
+    tree = STRtree(sub_geoms)
+    
     topology = []
-    max_dist_deg = 0.05 # Forøget tolerance til ca. 5 km for at fange afvigelser i OSM
+    # Tolerance i grader (ca. 0.04 grader ~ 4-5 km for at fange afvigelser i OSM)
+    max_dist_deg = 0.04 
 
     match_count = 0
     for line in raw_lines:
-        line_coords = line["coords"]
-        # Vi tjekker start- og slutpunktet på linjen
-        start_pt = Point(line_coords[0][0], line_coords[0][1])
-        end_pt = Point(line_coords[-1][0], line_coords[-1][1])
+        coords = line["coords"]
+        if len(coords) < 2:
+            continue
+            
+        line_geom = LineString(coords)
+        start_pt = Point(coords[0][0], coords[0][1])
+        end_pt = Point(coords[-1][0], coords[-1][1])
+
+        # Find de tætteste stationer til henholdsvis start- og slutpunkt ved at søge i træet
+        # Vi forespørger på en buffer/boks omkring punkterne
+        possible_start_idxs = tree.query(start_pt.buffer(max_dist_deg))
+        possible_end_idxs = tree.query(end_pt.buffer(max_dist_deg))
 
         closest_start = None
         min_start_dist = float('inf')
+        for idx in possible_start_idxs:
+            geom = sub_geoms[idx]
+            dist = start_pt.distance(geom)
+            if dist < min_start_dist and dist <= max_dist_deg:
+                min_start_dist = dist
+                closest_start = sub_lookup[id(geom)]
+
         closest_end = None
         min_end_dist = float('inf')
+        for idx in possible_end_idxs:
+            geom = sub_geoms[idx]
+            dist = end_pt.distance(geom)
+            if dist < min_end_dist and dist <= max_dist_deg:
+                min_end_dist = dist
+                closest_end = sub_lookup[id(geom)]
 
-        for sub_id, sub_pt in sub_points:
-            d_start = start_pt.distance(sub_pt)
-            if d_start < min_start_dist:
-                min_start_dist = d_start
-                closest_start = sub_id
-
-            d_end = end_pt.distance(sub_pt)
-            if d_end < min_end_dist:
-                min_end_dist = d_end
-                closest_end = sub_id
-
-        # Hvis både start og slut rammer en station inden for tolerancen (og det ikke er den samme)
+        # Hvis vi har fundet to forskellige stationer i hver sin ende inden for tolerancen
         if closest_start and closest_end and closest_start != closest_end:
-            if min_start_dist <= max_dist_deg and min_end_dist <= max_dist_deg:
-                topology.append({
-                    "line_mRID": line["mRID"],
-                    "name": line["name"],
-                    "voltage_int": line["voltage_int"],
-                    "source_sub": closest_start,
-                    "target_sub": closest_end
-                })
-                match_count += 1
+            topology.append({
+                "line_mRID": line["mRID"],
+                "name": line["name"],
+                "voltage_int": line["voltage_int"],
+                "source_sub": closest_start,
+                "target_sub": closest_end
+            })
+            match_count += 1
 
-    print(f"Topologi-analyse færdig: Fandt {match_count} gyldige netværksforbindelser.")
+    print(f"Topologi-analyse færdig: Fandt {match_count} gyldige netværksforbindelser med STRtree.")
     return topology
 
 def sync_to_neo4j(features, topology):
@@ -231,7 +247,7 @@ def fetch_and_save_geojson():
         
     print(f"Succes! {len(handler.features)} elementer gemt i {file_path}")
 
-    # Byg topologi og send til Neo4j
+    # Byg topologi med STRtree og send til Neo4j
     topology = build_topology(handler.raw_lines, handler.substations_list)
     sync_to_neo4j(handler.features, topology)
 
