@@ -1,9 +1,8 @@
-  import os
+import os
 import requests
 from neo4j import GraphDatabase
 
 def fetch_energidataservice_data():
-    # Henter de seneste reelle produktionstal for DK1 og DK2 fra EnergiDataService
     url = "https://api.energidataservice.dk/dataset/ElectricityProdEx?limit=50"
     
     print("Henter data fra EnergiDataService...")
