@@ -1,17 +1,19 @@
-name: Import Elnet Data to GeoJSON
+name: Import Grid & Energy Data
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *' # Kører hver nat kl. 03:00
+  workflow_dispatch: # Manuel kørsel
 
 jobs:
-  import-data:
+  run-pipeline:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
@@ -20,15 +22,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r data-pipeline/requirements.txt
 
-      - name: Run Importer Script
+      - name: Run OSM Grid Importer
         env:
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
           NEO4J_USER: ${{ secrets.NEO4J_USER }}
           NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
-        run: python data-pipeline/importer.py
+        run: |
+          python data-pipeline/importer.py
 
-      - name: Commit and push generated GeoJSON
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto-update elnet GeoJSON data"
-          file_pattern: frontend/substations.geojson
+      - name: Run EnergiDataService Importer
+        env:
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
+          NEO4J_USER: ${{ secrets.NEO4J_USER }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+        run: |
+          python data-pipeline/energidataservice_importer.py
+
+      - name: Commit and push updated GeoJSON
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add frontend/substations.geojson
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update grid GeoJSON & EnergiDataService status" && git push)
