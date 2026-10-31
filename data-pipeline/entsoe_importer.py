@@ -26,8 +26,8 @@ def fetch_entsoe_data():
     for code_from, code_to, label in interconnectors:
         print(f"Henter fysiske strømme fra ENTSO-E for {code_from} -> {code_to} ({label})...")
         try:
-            # Brug den korrekte entsoe-py metode (query_physical_flow i ental)
-            df = client.query_physical_flow(code_from, code_to, start=start, end=end)
+            # Brug den korrekte entsoe-py metode: query_crossborder_flows
+            df = client.query_crossborder_flows(code_from, code_to, start=start, end=end)
             if df is not None and not df.empty:
                 print(f"-> Fandt {len(df)} datapunkter for {label}.")
                 all_flows[label] = df
