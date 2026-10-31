@@ -2,8 +2,8 @@ name: Import Grid & Energy Data
 
 on:
   schedule:
-    - cron: '0 3 * * *' # Kører hver nat kl. 03:00
-  workflow_dispatch: # Manuel kørsel
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 jobs:
   run-pipeline:
@@ -21,6 +21,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r data-pipeline/requirements.txt
+
+      - name: Download Denmark OSM PBF
+        run: |
+          curl -O https://download.geofabrik.de/europe/denmark-latest.osm.pbf
 
       - name: Run OSM Grid Importer
         env:
