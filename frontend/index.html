@@ -32,7 +32,7 @@
     <!-- Main Workspace -->
     <div class="flex-1 relative flex overflow-hidden w-full h-full">
 
-        <!-- Kort Container (Fyldes fuldstændigt ud via flex-1) -->
+        <!-- Kort Container -->
         <div id="map" class="w-full h-full absolute inset-0"></div>
 
         <!-- Venstre Sidepanel: Lag, Komponent-signaturer & Analyse -->
@@ -158,89 +158,111 @@
 
     <!-- Script til MapLibre og UI Interaktion -->
     <script>
+        // Mørk kort-stil (CARTO Dark Matter) til kontrolrumsbrug
         const map = new maplibregl.Map({
             container: 'map',
-            style: 'https://demotiles.maplibre.org/style.json',
+            style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
             center: [10.45, 55.39], // Odense / Fraugde område
-            zoom: 10
+            zoom: 8
         });
 
-        // Sørg for at kortet tilpasser sig korrekt efter indlæsning
         map.on('load', function () {
             map.resize();
 
-            map.addSource('grid-data', {
-                type: 'geojson',
-                data: './substations.geojson'
-            });
+            // Forsøg at hente GeoJSON fra både nuværende sti og fallback-sti
+            const geojsonPath = window.location.pathname.includes('/frontend/') ? './substations.geojson' : './substations.geojson';
 
-            // 1. Linjelag
-            map.addLayer({
-                id: 'lines-layer',
-                type: 'line',
-                source: 'grid-data',
-                filter: ['==', 'category', 'line'],
-                paint: {
-                    'line-color': [
-                        'case',
-                        ['==', ['get', 'is_hvdc'], true], '#f59e0b',
-                        '#ef4444'
-                    ],
-                    'line-width': 2.5,
-                    'line-dasharray': [
-                        'case',
-                        ['==', ['get', 'power_type'], 'cable'], [2, 2],
-                        [1, 0]
-                    ]
-                }
-            });
+            fetch(geojsonPath)
+                .then(res => {
+                    if (!res.ok) throw new Error('Kunne ikke hente ' + geojsonPath + ' (Status: ' + res.status + ')');
+                    return res.json();
+                })
+                .then(data => {
+                    console.log("GeoJSON indlæst med succes:", data);
 
-            // 2. Transmissionsstationer Layer
-            map.addLayer({
-                id: 'substations-layer',
-                type: 'circle',
-                source: 'grid-data',
-                filter: ['==', 'category', 'substation'],
-                paint: {
-                    'circle-radius': 7,
-                    'circle-color': '#7c3aed',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff'
-                }
-            });
+                    map.addSource('grid-data', {
+                        type: 'geojson',
+                        data: data
+                    });
 
-            // 3. Synkronkompensatorer Layer
-            map.addLayer({
-                id: 'compensators-layer',
-                type: 'circle',
-                source: 'grid-data',
-                filter: ['==', 'category', 'synchronous_condenser'],
-                paint: {
-                    'circle-radius': 9,
-                    'circle-color': '#06b6d4',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff'
-                }
-            });
+                    // 1. Transmissionslinjer og Kabler
+                    map.addLayer({
+                        id: 'lines-layer',
+                        type: 'line',
+                        source: 'grid-data',
+                        filter: ['==', 'category', 'line'],
+                        paint: {
+                            'line-color': [
+                                'case',
+                                ['==', ['get', 'is_hvdc'], true], '#f59e0b', // HVDC/Kabel (Gul/Orange)
+                                '#ef4444' // 400 kV Luftledning (Neon Rød)
+                            ],
+                            'line-width': 3,
+                            'line-opacity': 0.85,
+                            'line-dasharray': [
+                                'case',
+                                ['==', ['get', 'power_type'], 'cable'], [2, 2],
+                                [1, 0]
+                            ]
+                        }
+                    });
 
-            // Event listeners
-            map.on('click', 'substations-layer', e => openInspector(e.features[0].properties));
-            map.on('click', 'compensators-layer', e => openInspector(e.features[0].properties));
-            map.on('click', 'lines-layer', e => openInspector({
-                name: e.features[0].properties.name || 'Transmissionslinje',
-                power: e.features[0].properties.power_type,
-                voltage: e.features[0].properties.voltage || '150/400'
-            }));
+                    // 2. Transmissionsstationer (Cirkler med glød)
+                    map.addLayer({
+                        id: 'substations-layer',
+                        type: 'circle',
+                        source: 'grid-data',
+                        filter: ['==', 'category', 'substation'],
+                        paint: {
+                            'circle-radius': 7,
+                            'circle-color': '#a855f7', // Lilla
+                            'circle-stroke-width': 2,
+                            'circle-stroke-color': '#ffffff'
+                        }
+                    });
+
+                    // 3. Synkronkompensatorer
+                    map.addLayer({
+                        id: 'compensators-layer',
+                        type: 'circle',
+                        source: 'grid-data',
+                        filter: ['==', 'category', 'synchronous_condenser'],
+                        paint: {
+                            'circle-radius': 9,
+                            'circle-color': '#06b6d4', // Cyan
+                            'circle-stroke-width': 2,
+                            'circle-stroke-color': '#ffffff'
+                        }
+                    });
+
+                    // Event listeners for klik
+                    map.on('click', 'substations-layer', e => openInspector(e.features[0].properties));
+                    map.on('click', 'compensators-layer', e => openInspector(e.features[0].properties));
+                    map.on('click', 'lines-layer', e => openInspector({
+                        name: e.features[0].properties.name || 'Transmissionslinje',
+                        power: e.features[0].properties.power_type,
+                        voltage: e.features[0].properties.voltage || '150/400'
+                    }));
+
+                    // Mouse cursors
+                    ['substations-layer', 'compensators-layer', 'lines-layer'].forEach(l => {
+                        map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer');
+                        map.on('mouseleave', l, () => map.getCanvas().style.cursor = '');
+                    });
+                })
+                .catch(err => {
+                    console.error("Fejl ved hente GeoJSON data:", err);
+                });
 
             // Filter toggles
             document.getElementById('layer-lines').addEventListener('change', (e) => {
-                map.setLayoutProperty('lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+                if (map.getLayer('lines-layer')) map.setLayoutProperty('lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
             });
             document.getElementById('layer-subs').addEventListener('change', (e) => {
-                map.setLayoutProperty('substations-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+                if (map.getLayer('substations-layer')) map.setLayoutProperty('substations-layer', 'visibility', e.target.checked ? 'visible' : 'none');
             });
             document.getElementById('layer-comps').addEventListener('change', (e) => {
-                map.setLayoutProperty('compensators-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+                if (map.getLayer('compensators-layer')) map.setLayoutProperty('compensators-layer', 'visibility', e.target.checked ? 'visible' : 'none');
             });
         });
 
@@ -272,19 +294,4 @@
 
         function toggleSourcePanel() {
             const modal = document.getElementById('source-modal');
-            modal.classList.toggle('hidden');
-        }
-
-        function runStateEstimation() {
-            const statusEl = document.getElementById('estimator-status');
-            statusEl.innerText = "Kører state estimation & lastflyd...";
-            statusEl.className = "text-xs text-amber-400 mt-2 animate-pulse";
-            
-            setTimeout(() => {
-                statusEl.innerText = "Simulering gennemført: Konvergeret (3 iterationer). Ingen overbelastninger.";
-                statusEl.className = "text-xs text-emerald-400 mt-2 font-medium";
-            }, 1200);
-        }
-    </script>
-</body>
-</html>
+            modal.classList.toggle('
