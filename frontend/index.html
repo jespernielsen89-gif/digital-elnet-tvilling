@@ -7,17 +7,17 @@
     <!-- MapLibre GL JS CSS -->
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
-    <!-- Tailwind CSS til lækkert UI -->
+    <!-- Tailwind CSS til UI -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: ui-sans-serif, system-ui, sans-serif; }
-        #map { width: 100%; height: 100vh; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: ui-sans-serif, system-ui, sans-serif; background-color: #020617; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 flex h-screen overflow-hidden">
+<body class="bg-slate-950 text-slate-100">
 
     <!-- Kort Container -->
-    <div id="map" class="flex-1 relative"></div>
+    <div id="map"></div>
 
     <!-- Substation Inspector Panel (Skjult som udgangspunkt, vises ved klik) -->
     <div id="inspector-panel" class="absolute top-4 right-4 w-96 bg-slate-900/95 backdrop-blur border border-slate-800 rounded-xl shadow-2xl p-5 hidden z-10">
@@ -43,7 +43,7 @@
         // Initialiser MapLibre GL kort over Danmark med fokus på Fyn/Fraugde
         const map = new maplibregl.Map({
             container: 'map',
-            style: 'https://demotiles.maplibre.org/style.json', // Eller standard open-source vektorstil
+            style: 'https://demotiles.maplibre.org/style.json',
             center: [10.45, 55.39], // Omkring Odense / Fraugde
             zoom: 11
         });
@@ -83,7 +83,7 @@
                 }
             });
 
-            // Klik-handler til at åbne Substation Inspector med simuleret CIM/komponent-data
+            // Klik-handler til at åbne Substation Inspector
             map.on('click', 'substations-layer', function (e) {
                 const props = e.features[0].properties;
                 openInspector(props);
@@ -104,7 +104,7 @@
         function openInspector(props) {
             document.getElementById('inspector-panel').classList.remove('hidden');
             document.getElementById('inspector-title').innerText = props.name || 'Transmissionskomponent';
-            document.getElementById('inspector-meta').innerText = `Type: ${props.power \vert{}\vert{} 'Ukendt'} \vert{} Spænding: ${props.voltage || '150/400'} kV`;
+            document.getElementById('inspector-meta').innerText = `Type: ${props.power || 'Ukendt'} | Spænding: ${props.voltage || '150/400'} kV`;
 
             const compContainer = document.getElementById('inspector-components');
             compContainer.innerHTML = `
@@ -113,3 +113,19 @@
                     <span class="px-2 py-0.5 text-xs bg-emerald-600 text-emerald-100 rounded font-medium">Spændingssat</span>
                 </div>
                 <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
+                    <span>Effektbryder (Circuit Breaker)</span>
+                    <span class="px-2 py-0.5 text-xs bg-blue-600 text-blue-100 rounded font-medium">LUKKET</span>
+                </div>
+                <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
+                    <span>Krafttransformator 400/150kV</span>
+                    <span class="text-xs text-slate-300">Drift: Normal (280 MW)</span>
+                </div>
+            `;
+        }
+
+        function closeInspector() {
+            document.getElementById('inspector-panel').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
