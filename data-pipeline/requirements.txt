@@ -4,3 +4,5 @@ shapely
 geopandas
 neo4j>=5.0.0
 requests
+pandas
+entsoe-py
