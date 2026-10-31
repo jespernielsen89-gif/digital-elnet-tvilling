@@ -24,7 +24,9 @@ jobs:
 
       - name: Download Denmark OSM PBF
         run: |
-          curl -O https://download.geofabrik.de/europe/denmark-latest.osm.pbf
+          rm -f denmark-latest.osm.pbf
+          wget -O denmark-latest.osm.pbf https://download.geofabrik.de/europe/denmark-latest.osm.pbf
+          ls -lh denmark-latest.osm.pbf
 
       - name: Run OSM Grid Importer
         env:
