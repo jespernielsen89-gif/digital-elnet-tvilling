@@ -16,7 +16,7 @@
 </head>
 <body class="bg-slate-950 text-slate-100 overflow-hidden">
 
-    <!-- Kort Container (Ligger i bunden i absolut fuld skærm) -->
+    <!-- Kort Container -->
     <div id="map"></div>
 
     <!-- Top Header / Kontrolrum Navbar -->
@@ -85,7 +85,7 @@
                     <p class="text-xs text-slate-400">Overordnet Type & Spænding</p>
                     <p id="inspector-meta" class="text-sm font-semibold mt-0.5">-</p>
                 </div>
-                <span id="inspector-source-tag" class="text-[10px] bg-purple-950 text-purple-300 border border-purple-800 px-2 py-1 rounded">Datakilde: OSM (Tier 3)</span>
+                <span id="inspector-source-tag" class="text-[10px] bg-purple-950 text-purple-300 border border-purple-800 px-2 py-1 rounded">Datakilde: OSM + Neo4j</span>
             </div>
             <div>
                 <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Interne Komponenter & Koblingstilstand</h3>
@@ -105,7 +105,6 @@
             <button onclick="toggleSourcePanel()" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded cursor-pointer">Luk ✕</button>
         </div>
         <div class="grid grid-cols-3 gap-3 mt-4 text-xs">
-            <!-- Kilde 1 -->
             <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
                 <div class="flex items-center justify-between mb-1.5">
                     <span class="font-bold text-purple-400">OpenStreetMap</span>
@@ -119,8 +118,6 @@
                     <li>400/150 kV geometri</li>
                 </ul>
             </div>
-
-            <!-- Kilde 2 -->
             <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
                 <div class="flex items-center justify-between mb-1.5">
                     <span class="font-bold text-emerald-400">EnergiDataService</span>
@@ -134,8 +131,6 @@
                     <li>Stamdata validering</li>
                 </ul>
             </div>
-
-            <!-- Kilde 3 -->
             <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
                 <div class="flex items-center justify-between mb-1.5">
                     <span class="font-bold text-blue-400">ENTSO-E TP</span>
@@ -157,93 +152,98 @@
         const map = new maplibregl.Map({
             container: 'map',
             style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-            center: [10.45, 55.39], // Odense / Fraugde område
+            center: [10.45, 55.39],
             zoom: 8
         });
 
         map.on('load', function () {
             map.resize();
 
-            fetch('./substations.geojson')
+            // Prøv først 'Substations.geojson' (med Stort S), derefter 'substations.geojson'
+            fetch('./Substations.geojson')
                 .then(res => {
-                    if (!res.ok) throw new Error('Kunne ikke hente substations.geojson (Status: ' + res.status + ')');
+                    if (!res.ok) return fetch('./substations.geojson');
+                    return res;
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error("GeoJSON fil ikke fundet på nogen af stierne");
                     return res.json();
                 })
-                .then(data => {
-                    console.log("GeoJSON indlæst med succes:", data);
-
-                    map.addSource('grid-data', {
-                        type: 'geojson',
-                        data: data
-                    });
-
-                    // 1. Transmissionslinjer og Kabler
-                    map.addLayer({
-                        id: 'lines-layer',
-                        type: 'line',
-                        source: 'grid-data',
-                        filter: ['==', 'category', 'line'],
-                        paint: {
-                            'line-color': [
-                                'case',
-                                ['==', ['get', 'is_hvdc'], true], '#f59e0b',
-                                '#ef4444'
-                            ],
-                            'line-width': 3,
-                            'line-opacity': 0.85,
-                            'line-dasharray': [
-                                'case',
-                                ['==', ['get', 'power_type'], 'cable'], [2, 2],
-                                [1, 0]
-                            ]
-                        }
-                    });
-
-                    // 2. Transmissionsstationer
-                    map.addLayer({
-                        id: 'substations-layer',
-                        type: 'circle',
-                        source: 'grid-data',
-                        filter: ['==', 'category', 'substation'],
-                        paint: {
-                            'circle-radius': 7,
-                            'circle-color': '#a855f7',
-                            'circle-stroke-width': 2,
-                            'circle-stroke-color': '#ffffff'
-                        }
-                    });
-
-                    // 3. Synkronkompensatorer
-                    map.addLayer({
-                        id: 'compensators-layer',
-                        type: 'circle',
-                        source: 'grid-data',
-                        filter: ['==', 'category', 'synchronous_condenser'],
-                        paint: {
-                            'circle-radius': 9,
-                            'circle-color': '#06b6d4',
-                            'circle-stroke-width': 2,
-                            'circle-stroke-color': '#ffffff'
-                        }
-                    });
-
-                    // Event listeners for klik
-                    map.on('click', 'substations-layer', e => openInspector(e.features[0].properties));
-                    map.on('click', 'compensators-layer', e => openInspector(e.features[0].properties));
-                    map.on('click', 'lines-layer', e => openInspector({
-                        name: e.features[0].properties.name || 'Transmissionslinje',
-                        power: e.features[0].properties.power_type,
-                        voltage: e.features[0].properties.voltage || '150/400'
-                    }));
-
-                    ['substations-layer', 'compensators-layer', 'lines-layer'].forEach(l => {
-                        map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer');
-                        map.on('mouseleave', l, () => map.getCanvas().style.cursor = '');
-                    });
-                })
+                .then(data => initMapLayers(data))
                 .catch(err => {
-                    console.error("Fejl ved hentning af GeoJSON data:", err);
+                    console.warn("Fejl ved hentning af GeoJSON, kontroller stien:", err);
                 });
+        });
+
+        function initMapLayers(geojsonData) {
+            map.addSource('grid-data', {
+                type: 'geojson',
+                data: geojsonData
+            });
+
+            // 1. Transmissionslinjer og Kabler
+            map.addLayer({
+                id: 'lines-layer',
+                type: 'line',
+                source: 'grid-data',
+                filter: ['==', 'category', 'line'],
+                paint: {
+                    'line-color': [
+                        'case',
+                        ['==', ['get', 'is_hvdc'], true], '#f59e0b',
+                        '#ef4444'
+                    ],
+                    'line-width': 3.5,
+                    'line-opacity': 0.9,
+                    'line-dasharray': [
+                        'case',
+                        ['==', ['get', 'power_type'], 'cable'], [2, 2],
+                        [1, 0]
+                    ]
+                }
+            });
+
+            // 2. Transmissionsstationer
+            map.addLayer({
+                id: 'substations-layer',
+                type: 'circle',
+                source: 'grid-data',
+                filter: ['==', 'category', 'substation'],
+                paint: {
+                    'circle-radius': 8,
+                    'circle-color': '#a855f7',
+                    'circle-stroke-width': 2.5,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
+
+            // 3. Synkronkompensatorer
+            map.addLayer({
+                id: 'compensators-layer',
+                type: 'circle',
+                source: 'grid-data',
+                filter: ['==', 'category', 'synchronous_condenser'],
+                paint: {
+                    'circle-radius': 10,
+                    'circle-color': '#06b6d4',
+                    'circle-stroke-width': 2.5,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
+
+            // Event listeners
+            map.on('click', 'substations-layer', e => openInspector(e.features[0].properties));
+            map.on('click', 'compensators-layer', e => openInspector(e.features[0].properties));
+            map.on('click', 'lines-layer', e => openInspector({
+                name: e.features[0].properties.name || 'Transmissionslinje',
+                power: e.features[0].properties.power_type,
+                voltage: e.features[0].properties.voltage || '150/400'
+            }));
+
+            ['substations-layer', 'compensators-layer', 'lines-layer'].forEach(l => {
+                map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer');
+                map.on('mouseleave', l, () => map.getCanvas().style.cursor = '');
+            });
 
             // Filter toggles
             document.getElementById('layer-lines').addEventListener('change', (e) => {
@@ -255,7 +255,7 @@
             document.getElementById('layer-comps').addEventListener('change', (e) => {
                 if (map.getLayer('compensators-layer')) map.setLayoutProperty('compensators-layer', 'visibility', e.target.checked ? 'visible' : 'none');
             });
-        });
+        }
 
         function openInspector(props) {
             document.getElementById('inspector-panel').classList.remove('hidden');
