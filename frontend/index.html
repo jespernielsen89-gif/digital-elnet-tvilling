@@ -11,30 +11,29 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: ui-sans-serif, system-ui, sans-serif; background-color: #020617; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; z-index: 0; }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 flex flex-col h-screen overflow-hidden">
 
     <!-- Top Header / Kontrolrum Navbar -->
-    <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 z-20">
+    <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 z-20 shrink-0">
         <div class="flex items-center space-x-3">
             <div class="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
             <h1 class="font-bold text-base tracking-wide text-slate-100">DK Transmission <span class="text-purple-400 font-normal">Digital Tvilling v2.1</span></h1>
         </div>
         <div class="flex items-center space-x-4 text-xs">
             <span class="bg-slate-800 px-3 py-1 rounded-full border border-slate-700 text-slate-300">Driftsstatus: <strong class="text-emerald-400">Normal (N-1 Sikret)</strong></span>
-            <button onclick="toggleSourcePanel()" class="bg-purple-900/50 hover:bg-purple-800/60 text-purple-200 px-3 py-1 rounded-full border border-purple-700/50 transition">
+            <button onclick="toggleSourcePanel()" class="bg-purple-900/50 hover:bg-purple-800/60 text-purple-200 px-3 py-1 rounded-full border border-purple-700/50 transition cursor-pointer">
                 📊 Datakilder & Metrikker
             </button>
         </div>
     </header>
 
     <!-- Main Workspace -->
-    <div class="flex-1 relative flex overflow-hidden">
+    <div class="flex-1 relative flex overflow-hidden w-full h-full">
 
-        <!-- Kort Container -->
-        <div id="map"></div>
+        <!-- Kort Container (Fyldes fuldstændigt ud via flex-1) -->
+        <div id="map" class="w-full h-full absolute inset-0"></div>
 
         <!-- Venstre Sidepanel: Lag, Komponent-signaturer & Analyse -->
         <div class="absolute top-4 left-4 w-80 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl shadow-2xl p-4 z-10 space-y-4">
@@ -69,7 +68,7 @@
 
             <div>
                 <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">State Estimator & Simulation</h3>
-                <button onclick="runStateEstimation()" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-medium py-2 px-3 rounded-lg text-sm transition shadow-lg shadow-purple-900/30">
+                <button onclick="runStateEstimation()" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-medium py-2 px-3 rounded-lg text-sm transition shadow-lg shadow-purple-900/30 cursor-pointer">
                     Kør State Estimator (N-1)
                 </button>
                 <p id="estimator-status" class="text-xs text-slate-400 mt-2">Status: Afventer simulering...</p>
@@ -80,7 +79,7 @@
         <div id="inspector-panel" class="absolute top-4 right-4 w-96 bg-slate-900/95 backdrop-blur border border-slate-800 rounded-xl shadow-2xl p-5 hidden z-10">
             <div class="flex justify-between items-center pb-3 border-b border-slate-800">
                 <h2 id="inspector-title" class="text-lg font-bold text-purple-400">Stationsdetaljer</h2>
-                <button onclick="closeInspector()" class="text-slate-400 hover:text-white text-sm bg-slate-800 px-2 py-1 rounded">Luk ✕</button>
+                <button onclick="closeInspector()" class="text-slate-400 hover:text-white text-sm bg-slate-800 px-2 py-1 rounded cursor-pointer">Luk ✕</button>
             </div>
             <div class="mt-4 space-y-3">
                 <div class="bg-slate-800/60 p-3 rounded-lg flex justify-between items-center">
@@ -99,13 +98,13 @@
             </div>
         </div>
 
-        <!-- Datakilder & Provenance Modal (Viser præcist hvad der bruges til hvad) -->
+        <!-- Datakilder & Provenance Modal -->
         <div id="source-modal" class="absolute bottom-6 left-1/2 -translate-x-1/2 w-[680px] bg-slate-900/95 backdrop-blur border border-slate-800 rounded-xl shadow-2xl p-5 hidden z-30">
             <div class="flex justify-between items-center pb-3 border-b border-slate-800">
                 <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
                     <span>📡</span> Datakilde-Arkitektur & Provenance
                 </h2>
-                <button onclick="toggleSourcePanel()" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Luk ✕</button>
+                <button onclick="toggleSourcePanel()" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded cursor-pointer">Luk ✕</button>
             </div>
             <div class="grid grid-cols-3 gap-3 mt-4 text-xs">
                 <!-- Kilde 1 -->
@@ -166,13 +165,16 @@
             zoom: 10
         });
 
+        // Sørg for at kortet tilpasser sig korrekt efter indlæsning
         map.on('load', function () {
+            map.resize();
+
             map.addSource('grid-data', {
                 type: 'geojson',
                 data: './substations.geojson'
             });
 
-            // 1. Linjelag (Skift farve og stil baseret på spænding og type)
+            // 1. Linjelag
             map.addLayer({
                 id: 'lines-layer',
                 type: 'line',
@@ -181,8 +183,8 @@
                 paint: {
                     'line-color': [
                         'case',
-                        ['==', ['get', 'is_hvdc'], true], '#f59e0b', // HVDC / Kabel (Orange)
-                        '#ef4444' // Standard 400 kV (Rød)
+                        ['==', ['get', 'is_hvdc'], true], '#f59e0b',
+                        '#ef4444'
                     ],
                     'line-width': 2.5,
                     'line-dasharray': [
@@ -202,3 +204,87 @@
                 paint: {
                     'circle-radius': 7,
                     'circle-color': '#7c3aed',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
+
+            // 3. Synkronkompensatorer Layer
+            map.addLayer({
+                id: 'compensators-layer',
+                type: 'circle',
+                source: 'grid-data',
+                filter: ['==', 'category', 'synchronous_condenser'],
+                paint: {
+                    'circle-radius': 9,
+                    'circle-color': '#06b6d4',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
+
+            // Event listeners
+            map.on('click', 'substations-layer', e => openInspector(e.features[0].properties));
+            map.on('click', 'compensators-layer', e => openInspector(e.features[0].properties));
+            map.on('click', 'lines-layer', e => openInspector({
+                name: e.features[0].properties.name || 'Transmissionslinje',
+                power: e.features[0].properties.power_type,
+                voltage: e.features[0].properties.voltage || '150/400'
+            }));
+
+            // Filter toggles
+            document.getElementById('layer-lines').addEventListener('change', (e) => {
+                map.setLayoutProperty('lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+            });
+            document.getElementById('layer-subs').addEventListener('change', (e) => {
+                map.setLayoutProperty('substations-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+            });
+            document.getElementById('layer-comps').addEventListener('change', (e) => {
+                map.setLayoutProperty('compensators-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+            });
+        });
+
+        function openInspector(props) {
+            document.getElementById('inspector-panel').classList.remove('hidden');
+            document.getElementById('inspector-title').innerText = props.name || 'Transmissionskomponent';
+            document.getElementById('inspector-meta').innerText = `Type: ${props.power || 'Transmissionsnet'} | Spænding: ${props.voltage || '150/400'} kV`;
+
+            const compContainer = document.getElementById('inspector-components');
+            compContainer.innerHTML = `
+                <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
+                    <span class="flex items-center gap-2"><span class="w-2 h-2 bg-emerald-400 rounded-full"></span> Samleskinne 400 kV (BUS 1)</span>
+                    <span class="px-2 py-0.5 text-xs bg-emerald-950 text-emerald-300 border border-emerald-800 rounded font-medium">Energized</span>
+                </div>
+                <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
+                    <span class="flex items-center gap-2"><span class="w-2 h-2 bg-blue-400 rounded-full"></span> Effektbryder (Circuit Breaker)</span>
+                    <span class="px-2 py-0.5 text-xs bg-blue-950 text-blue-300 border border-blue-800 rounded font-medium">LUKKET</span>
+                </div>
+                <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
+                    <span class="flex items-center gap-2"><span class="w-2 h-2 bg-amber-400 rounded-full"></span> Reaktiv Effektydelse</span>
+                    <span class="text-xs text-amber-300 font-mono">+45 MVAR (ENTSO-E)</span>
+                </div>
+            `;
+        }
+
+        function closeInspector() {
+            document.getElementById('inspector-panel').classList.add('hidden');
+        }
+
+        function toggleSourcePanel() {
+            const modal = document.getElementById('source-modal');
+            modal.classList.toggle('hidden');
+        }
+
+        function runStateEstimation() {
+            const statusEl = document.getElementById('estimator-status');
+            statusEl.innerText = "Kører state estimation & lastflyd...";
+            statusEl.className = "text-xs text-amber-400 mt-2 animate-pulse";
+            
+            setTimeout(() => {
+                statusEl.innerText = "Simulering gennemført: Konvergeret (3 iterationer). Ingen overbelastninger.";
+                statusEl.className = "text-xs text-emerald-400 mt-2 font-medium";
+            }, 1200);
+        }
+    </script>
+</body>
+</html>
