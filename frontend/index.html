@@ -20,11 +20,13 @@
     <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 z-20">
         <div class="flex items-center space-x-3">
             <div class="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
-            <h1 class="font-bold text-base tracking-wide text-slate-100">DK Transmission <span class="text-purple-400 font-normal">Digital Tvilling v2.0</span></h1>
+            <h1 class="font-bold text-base tracking-wide text-slate-100">DK Transmission <span class="text-purple-400 font-normal">Digital Tvilling v2.1</span></h1>
         </div>
         <div class="flex items-center space-x-4 text-xs">
             <span class="bg-slate-800 px-3 py-1 rounded-full border border-slate-700 text-slate-300">Driftsstatus: <strong class="text-emerald-400">Normal (N-1 Sikret)</strong></span>
-            <span class="bg-slate-800 px-3 py-1 rounded-full border border-slate-700 text-slate-300">Kilde: <strong class="text-blue-400">OSM + Neo4j + ENTSO-E</strong></span>
+            <button onclick="toggleSourcePanel()" class="bg-purple-900/50 hover:bg-purple-800/60 text-purple-200 px-3 py-1 rounded-full border border-purple-700/50 transition">
+                📊 Datakilder & Metrikker
+            </button>
         </div>
     </header>
 
@@ -34,22 +36,31 @@
         <!-- Kort Container -->
         <div id="map"></div>
 
-        <!-- Venstre Sidepanel: Lag & Analyse-styring -->
+        <!-- Venstre Sidepanel: Lag, Komponent-signaturer & Analyse -->
         <div class="absolute top-4 left-4 w-80 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl shadow-2xl p-4 z-10 space-y-4">
             <div>
-                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Kortlag & Filtre</h3>
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Kortlag & Komponenter</h3>
                 <div class="space-y-2 text-sm">
-                    <label class="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" checked id="layer-lines" class="rounded bg-slate-800 border-slate-700 text-purple-600 focus:ring-0">
-                        <span>Transmissionslinjer & Kabler</span>
+                    <label class="flex items-center justify-between cursor-pointer">
+                        <span class="flex items-center space-x-2">
+                            <input type="checkbox" checked id="layer-lines" class="rounded bg-slate-800 border-slate-700 text-purple-600 focus:ring-0">
+                            <span>Transmissionslinjer & Kabler</span>
+                        </span>
+                        <span class="w-4 h-0.5 bg-red-500 rounded"></span>
                     </label>
-                    <label class="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" checked id="layer-subs" class="rounded bg-slate-800 border-slate-700 text-purple-600 focus:ring-0">
-                        <span>Stationer (400/150 kV)</span>
+                    <label class="flex items-center justify-between cursor-pointer">
+                        <span class="flex items-center space-x-2">
+                            <input type="checkbox" checked id="layer-subs" class="rounded bg-slate-800 border-slate-700 text-purple-600 focus:ring-0">
+                            <span>Stationer (400/150 kV)</span>
+                        </span>
+                        <span class="w-3 h-3 bg-purple-600 rounded-full border border-white"></span>
                     </label>
-                    <label class="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" checked id="layer-comps" class="rounded bg-slate-800 border-slate-700 text-purple-600 focus:ring-0">
-                        <span>Synkronkompensatorer</span>
+                    <label class="flex items-center justify-between cursor-pointer">
+                        <span class="flex items-center space-x-2">
+                            <input type="checkbox" checked id="layer-comps" class="rounded bg-slate-800 border-slate-700 text-purple-600 focus:ring-0">
+                            <span>Synkronkompensatorer</span>
+                        </span>
+                        <span class="w-3 h-3 bg-cyan-500 rounded border border-white"></span>
                     </label>
                 </div>
             </div>
@@ -72,15 +83,74 @@
                 <button onclick="closeInspector()" class="text-slate-400 hover:text-white text-sm bg-slate-800 px-2 py-1 rounded">Luk ✕</button>
             </div>
             <div class="mt-4 space-y-3">
-                <div class="bg-slate-800/60 p-3 rounded-lg">
-                    <p class="text-xs text-slate-400">Overordnet Type & Spænding</p>
-                    <p id="inspector-meta" class="text-sm font-semibold mt-0.5">-</p>
+                <div class="bg-slate-800/60 p-3 rounded-lg flex justify-between items-center">
+                    <div>
+                        <p class="text-xs text-slate-400">Overordnet Type & Spænding</p>
+                        <p id="inspector-meta" class="text-sm font-semibold mt-0.5">-</p>
+                    </div>
+                    <span id="inspector-source-tag" class="text-[10px] bg-purple-950 text-purple-300 border border-purple-800 px-2 py-1 rounded">Datakilde: OSM (Tier 3)</span>
                 </div>
                 <div>
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Interne Komponenter & Koblingstilstand</h3>
                     <div id="inspector-components" class="space-y-2">
                         <!-- Dynamisk indhold -->
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Datakilder & Provenance Modal (Viser præcist hvad der bruges til hvad) -->
+        <div id="source-modal" class="absolute bottom-6 left-1/2 -translate-x-1/2 w-[680px] bg-slate-900/95 backdrop-blur border border-slate-800 rounded-xl shadow-2xl p-5 hidden z-30">
+            <div class="flex justify-between items-center pb-3 border-b border-slate-800">
+                <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <span>📡</span> Datakilde-Arkitektur & Provenance
+                </h2>
+                <button onclick="toggleSourcePanel()" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Luk ✕</button>
+            </div>
+            <div class="grid grid-cols-3 gap-3 mt-4 text-xs">
+                <!-- Kilde 1 -->
+                <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="font-bold text-purple-400">OpenStreetMap</span>
+                        <span class="text-[10px] bg-slate-700 px-1.5 py-0.5 rounded text-slate-300">Tier 3</span>
+                    </div>
+                    <p class="text-slate-300 font-medium mb-1">Anvendelse:</p>
+                    <ul class="text-slate-400 list-disc list-inside space-y-0.5">
+                        <li>Stationers topologi</li>
+                        <li>Master & kabelføringer</li>
+                        <li>Synkronkompensatorer</li>
+                        <li>400/150 kV geometri</li>
+                    </ul>
+                </div>
+
+                <!-- Kilde 2 -->
+                <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="font-bold text-emerald-400">EnergiDataService</span>
+                        <span class="text-[10px] bg-slate-700 px-1.5 py-0.5 rounded text-slate-300">Tier 1</span>
+                    </div>
+                    <p class="text-slate-300 font-medium mb-1">Anvendelse:</p>
+                    <ul class="text-slate-400 list-disc list-inside space-y-0.5">
+                        <li>Produktions-målinger</li>
+                        <li>Systemforbrug per minut</li>
+                        <li>Markedsområde-priser</li>
+                        <li>Stamdata validering</li>
+                    </ul>
+                </div>
+
+                <!-- Kilde 3 -->
+                <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="font-bold text-blue-400">ENTSO-E TP</span>
+                        <span class="text-[10px] bg-slate-700 px-1.5 py-0.5 rounded text-slate-300">Tier 1</span>
+                    </div>
+                    <p class="text-slate-300 font-medium mb-1">Anvendelse:</p>
+                    <ul class="text-slate-400 list-disc list-inside space-y-0.5">
+                        <li>Fysiske grænse-flows</li>
+                        <li>HVDC udveksling (MW)</li>
+                        <li>Viking Link / Storebælt</li>
+                        <li>Grænseoverskridende N-1</li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -102,103 +172,33 @@
                 data: './substations.geojson'
             });
 
-            // Linjelag
+            // 1. Linjelag (Skift farve og stil baseret på spænding og type)
             map.addLayer({
                 id: 'lines-layer',
                 type: 'line',
                 source: 'grid-data',
                 filter: ['==', 'category', 'line'],
                 paint: {
-                    'line-color': ['case', ['==', ['get', 'is_hvdc'], true], '#f59e0b', '#ef4444'],
-                    'line-width': 2.5
+                    'line-color': [
+                        'case',
+                        ['==', ['get', 'is_hvdc'], true], '#f59e0b', // HVDC / Kabel (Orange)
+                        '#ef4444' // Standard 400 kV (Rød)
+                    ],
+                    'line-width': 2.5,
+                    'line-dasharray': [
+                        'case',
+                        ['==', ['get', 'power_type'], 'cable'], [2, 2],
+                        [1, 0]
+                    ]
                 }
             });
 
-            // Stationslag
+            // 2. Transmissionsstationer Layer
             map.addLayer({
                 id: 'substations-layer',
                 type: 'circle',
                 source: 'grid-data',
                 filter: ['==', 'category', 'substation'],
                 paint: {
-                    'circle-radius': 6,
+                    'circle-radius': 7,
                     'circle-color': '#7c3aed',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff'
-                }
-            });
-
-            // Kompensatorlag
-            map.addLayer({
-                id: 'compensators-layer',
-                type: 'circle',
-                source: 'grid-data',
-                filter: ['==', 'category', 'synchronous_condenser'],
-                paint: {
-                    'circle-radius': 8,
-                    'circle-color': '#06b6d4',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff'
-                }
-            });
-
-            // Event listeners for klik
-            map.on('click', 'substations-layer', e => openInspector(e.features[0].properties));
-            map.on('click', 'compensators-layer', e => openInspector(e.features[0].properties));
-            map.on('click', 'lines-layer', e => openInspector({
-                name: e.features[0].properties.name || 'Transmissionslinje',
-                power: e.features[0].properties.power_type,
-                voltage: e.features[0].properties.voltage || '150/400'
-            }));
-
-            // Filter toggles i venstre panel
-            document.getElementById('layer-lines').addEventListener('change', (e) => {
-                map.setLayoutProperty('lines-layer', 'visibility', e.target.checked ? 'visible' : 'none');
-            });
-            document.getElementById('layer-subs').addEventListener('change', (e) => {
-                map.setLayoutProperty('substations-layer', 'visibility', e.target.checked ? 'visible' : 'none');
-            });
-            document.getElementById('layer-comps').addEventListener('change', (e) => {
-                map.setLayoutProperty('compensators-layer', 'visibility', e.target.checked ? 'visible' : 'none');
-            });
-        });
-
-        function openInspector(props) {
-            document.getElementById('inspector-panel').classList.remove('hidden');
-            document.getElementById('inspector-title').innerText = props.name || 'Transmissionskomponent';
-            document.getElementById('inspector-meta').innerText = `Type: ${props.power || 'Transmissionsnet'} | Spænding: ${props.voltage || '150/400'} kV`;
-
-            const compContainer = document.getElementById('inspector-components');
-            compContainer.innerHTML = `
-                <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
-                    <span>Samleskinne / Busbar</span>
-                    <span class="px-2 py-0.5 text-xs bg-emerald-600 text-emerald-100 rounded font-medium">Spændingssat</span>
-                </div>
-                <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
-                    <span>Effektbryder (Circuit Breaker)</span>
-                    <span class="px-2 py-0.5 text-xs bg-blue-600 text-blue-100 rounded font-medium">LUKKET</span>
-                </div>
-                <div class="flex justify-between items-center bg-slate-800 p-2.5 rounded text-sm">
-                    <span>Estimeret Spændingsafvigelse</span>
-                    <span class="text-xs text-emerald-400 font-mono">+0.2% (100.2 kV)</span>
-                </div>
-            `;
-        }
-
-        function closeInspector() {
-            document.getElementById('inspector-panel').classList.add('hidden');
-        }
-
-        function runStateEstimation() {
-            const statusEl = document.getElementById('estimator-status');
-            statusEl.innerText = "Kører state estimation & lastflyd...";
-            statusEl.className = "text-xs text-amber-400 mt-2 animate-pulse";
-            
-            setTimeout(() => {
-                statusEl.innerText = "Simulering gennemført: Konvergeret (3 iterationer). Ingen overbelastninger.";
-                statusEl.className = "text-xs text-emerald-400 mt-2 font-medium";
-            }, 1200);
-        }
-    </script>
-</body>
-</html>
