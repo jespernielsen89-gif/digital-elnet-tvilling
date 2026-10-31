@@ -2,56 +2,58 @@ import os
 import requests
 from neo4j import GraphDatabase
 
-def fetch_energidataservice_data():
-    url = "https://api.energidataservice.dk/dataset/ElectricityProdEx?limit=50"
+def fetch_energidataservice():
+    # Opdateret og korrekt API endpoint for EnergiDataService (f.eks. Elspotpriser eller strømforbrug/generation)
+    url = "https://api.energidataservice.dk/dataset/Elspotprices"
     
-    print("Henter data fra EnergiDataService...")
-    response = requests.get(url)
-    
-    if response.status_code == 200:
+    print(f"Henter data fra EnergiDataService på {url}...")
+    try:
+        response = requests.get(url, params={"limit": 5})
+        if response.status_code == 404:
+            # Fallback til et andet essentielt dataset hvis det første ikke findes
+            url = "https://api.energidataservice.dk/dataset/PowerSystemPub"
+            response = requests.get(url, params={"limit": 5})
+            
+        response.raise_for_status()
         data = response.json()
         records = data.get("records", [])
-        print(f"Hentede {len(records)} rækker data fra EnergiDataService.")
+        print(f"-> Fandt {len(records)} poster fra EnergiDataService.")
         return records
-    else:
-        print(f"Fejl ved hentning af data: {response.status_code}")
+    except Exception as e:
+        print(f"-> Fejl ved hentning af data fra EnergiDataService: {e}")
         return []
 
-def sync_energy_data_to_neo4j(records):
+def sync_to_neo4j(records):
+    if not records:
+        print("Ingen EnergiDataService-data at synkronisere.")
+        return
+
     uri = os.getenv("NEO4J_URI")
     user = os.getenv("NEO4J_USER")
     password = os.getenv("NEO4J_PASSWORD")
 
     if not uri or not user or not password:
-        print("FEJL: Neo4j miljøvariabler ikke fundet!")
+        print("FEJL: Neo4j miljøvariabler mangler!")
         return
 
-    print("Forbinder til Neo4j AuraDB for at synkronisere marked- og produktionsdata...")
     driver = GraphDatabase.driver(uri, auth=(user, password))
-
     with driver.session() as session:
-        count = 0
-        for r in records:
+        print(f"Synkroniserer {len(records)} poster til Neo4j...")
+        # Eksempel på lagring af markedsdata / systemdata
+        for rec in records:
             session.run(
                 """
-                MERGE (z:BiddingZone {zoneId: $zone})
-                SET z.last_update = $utc_time,
-                    z.solar_power = $solar,
-                    z.wind_power = $wind,
-                    z.confidence_tier = 1,
-                    z.source = "EnergiDataService"
+                MERge (m:MarketData {id: toString($id)})
+                SET m.timestamp = $time,
+                    m.source = "EnergiDataService",
+                    m.confidence_tier = 1
                 """,
-                zone=r.get("PriceArea", "DK"),
-                utc_time=r.get("HourUTC"),
-                solar=r.get("SolarPower", 0.0),
-                wind=r.get("WindPower", 0.0)
+                id=rec.get("HourUTC", "unknown"),
+                time=str(rec.get("HourUTC", ""))
             )
-            count += 1
-        print(f"Succes! Opdaterede {count} poster i Neo4j med data fra EnergiDataService.")
-
     driver.close()
+    print("Succes med EnergiDataService synkronisering!")
 
 if __name__ == "__main__":
-    records = fetch_energidataservice_data()
-    if records:
-        sync_energy_data_to_neo4j(records)
+    recs = fetch_energidataservice()
+    sync_to_neo4j(recs)
