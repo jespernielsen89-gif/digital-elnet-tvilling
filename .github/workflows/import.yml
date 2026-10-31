@@ -38,9 +38,18 @@ jobs:
         run: |
           python data-pipeline/energidataservice_importer.py
 
+      - name: Run ENTSO-E Importer
+        env:
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
+          NEO4J_USER: ${{ secrets.NEO4J_USER }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+          ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+        run: |
+          python data-pipeline/entsoe_importer.py
+
       - name: Commit and push updated GeoJSON
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
           git add frontend/substations.geojson
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update grid GeoJSON & EnergiDataService status" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update grid GeoJSON & Multi-Tier energy data" && git push)
