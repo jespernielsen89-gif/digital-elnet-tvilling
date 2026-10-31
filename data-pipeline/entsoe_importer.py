@@ -6,16 +6,13 @@ from neo4j import GraphDatabase
 def fetch_entsoe_data():
     api_key = os.getenv("ENTSOE_API_KEY")
     if not api_key:
-        print("FEJL: ENTSOE_API_KEY miljøvariabel ikke fundet!")
-        return None
+        raise ValueError("FEJL: ENTSOE_API_KEY miljøvariabel mangler!")
 
     client = EntsoePandasClient(api_key=api_key)
     
     end = pd.Timestamp.now(tz='UTC')
-    start = end - pd.Timedelta(days=1)
+    start = end - pd.Timedelta(days=2)
     
-    # Relevante grænseflader for det danske elnet (HVDC / AC korridorer)
-    # DK_1 = Vestdanmark, DK_2 = Østdanmark, DE_LU = Tyskland, SE_3/SE_4 = Sverige, NL = Nederlandene, GB = Storbritannien
     interconnectors = [
         ("DK_1", "DE_LU", "DK1-DE"),
         ("DK_1", "NL", "DK1-NL"),
@@ -29,17 +26,21 @@ def fetch_entsoe_data():
     for code_from, code_to, label in interconnectors:
         print(f"Henter fysiske strømme fra ENTSO-E for {code_from} -> {code_to} ({label})...")
         try:
-            df = client.query_physical_flows(code_from, code_to, start=start, end=end)
-            if not df.empty:
+            # Brug den korrekte entsoe-py metode (query_physical_flow i ental)
+            df = client.query_physical_flow(code_from, code_to, start=start, end=end)
+            if df is not None and not df.empty:
+                print(f"-> Fandt {len(df)} datapunkter for {label}.")
                 all_flows[label] = df
+            else:
+                print(f"-> Ingen data returneret for {label}.")
         except Exception as e:
-            print(f"Kunne ikke hente {label}: {e}")
+            print(f"-> Fejl ved hentning af {label}: {e}")
             
     return all_flows
 
 def sync_entsoe_to_neo4j(all_flows):
     if not all_flows:
-        print("Ingen ENTSO-E data at synkronisere.")
+        print("Advarsel: Ingen ENTSO-E data hentet, men fortsætter...")
         return
 
     uri = os.getenv("NEO4J_URI")
@@ -47,10 +48,8 @@ def sync_entsoe_to_neo4j(all_flows):
     password = os.getenv("NEO4J_PASSWORD")
 
     if not uri or not user or not password:
-        print("FEJL: Neo4j miljøvariabler ikke fundet!")
-        return
+        raise ValueError("FEJL: Neo4j miljøvariabler mangler!")
 
-    print("Forbinder til Neo4j AuraDB for at synkronisere HVDC & Interconnector markedsdata...")
     driver = GraphDatabase.driver(uri, auth=(user, password))
 
     with driver.session() as session:
@@ -74,11 +73,10 @@ def sync_entsoe_to_neo4j(all_flows):
                 )
                 total_count += 1
                 
-        print(f"Succes! Opdaterede i alt {total_count} datapunkter på tværs af interconnectors i Neo4j.")
+        print(f"Succes! Opdaterede i alt {total_count} datapunkter i Neo4j.")
 
     driver.close()
 
 if __name__ == "__main__":
     flows = fetch_entsoe_data()
-    if flows:
-        sync_entsoe_to_neo4j(flows)
+    sync_entsoe_to_neo4j(flows)
